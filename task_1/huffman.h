@@ -34,12 +34,7 @@ struct eout {
 	char *r;
 };
 
-struct ined {
-	size_t data_size;
-	char *data;
-};
-
-struct eout encoder(struct ined);
-void *decoder(struct ined);
+struct eout encoder(char *);
+void *decoder(char *);
 
 #endif
