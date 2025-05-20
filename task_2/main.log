@@ -1,0 +1,21 @@
+Script started on 2025-05-20 20:47:19+03:00 [COMMAND="./bin/python main.py" TERM="foot" TTY="/dev/pts/0" COLUMNS="100" LINES="26"]
+
+=== Результаты: Метод наименьших квадратов (МНК) ===
+Train MSE: 0.5179 | Train R2: 0.6126
+Test  MSE: 0.5559 | Test  R2: 0.5758
+
+=== Результаты: Градиентный спуск (GD) ===
+Train MSE: 0.5317 | Train R2: 0.6022
+Test  MSE: 0.5577 | Test  R2: 0.5744
+
+=== Сравнение методов ===
+Difference in Test R2 (Closed - GD): +0.0014
+Difference in Test MSE (GD - Closed): +0.0018
+
+Топ признаки |coef| (GD): {'Bias': 2.0680205821990967, 'MedInc': 0.852254331111908, 'Latitude': 0.5957304239273071}
+
+Сильные корреляции (|r|>0.75):
+ - AveBedrms & AveRooms: 0.85
+ - Latitude & Longitude: -0.92
+
+Script done on 2025-05-20 20:47:24+03:00 [COMMAND_EXIT_CODE="0"]
