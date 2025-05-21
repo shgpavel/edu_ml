@@ -1,0 +1,6 @@
+Script started on 2025-05-21 14:35:00+03:00 [COMMAND="./bin/python main.py" TERM="foot" TTY="/dev/pts/2" COLUMNS="100" LINES="26"]
+                  SSE  Silhouette  Davies_Bouldin    Purity  Iterations
+Custom   69674.069710    0.149227        1.866275  0.713411          19
+Sklearn  69813.559137    0.139377        1.877019  0.682248          32
+
+Script done on 2025-05-21 14:35:19+03:00 [COMMAND_EXIT_CODE="0"]
