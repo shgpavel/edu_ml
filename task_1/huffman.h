@@ -9,32 +9,28 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <wchar.h>
 
-#define COUNT_ARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, N, ...) N
-#define COUNT_ARGS(...) \
-	COUNT_ARGS_IMPL(__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
-
-#define bintree_add(bintree, ...) \
-	bintree_add_impl(bintree, COUNT_ARGS(__VA_ARGS__), __VA_ARGS__)
-
-struct bintree {
-	size_t size;
-	size_t capacity;
-	size_t data_size;
-	uint8_t *memory;
+struct bitbuf {
+	wchar_t el;
+	uint16_t buf;
+	uint8_t len;
 };
 
-struct tree_el {
+struct huffman_el {
 	size_t freq;
 	wchar_t el;
+	struct huffman_el *left, *right;
 };
 
 struct eout {
-	int state;
-	char *r;
+	size_t size;
+	uint8_t *m;
+	struct bitbuf *t;
 };
 
-struct eout encoder(char *);
-void *decoder(char *);
+struct eout encoder(const wchar_t *input);
+wchar_t *decoder(struct eout encoded);
+void destroy_tree(struct huffman_el *node);
 
 #endif

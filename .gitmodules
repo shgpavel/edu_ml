@@ -1,0 +1,75 @@
+[submodule "clang-ml/dataset/cJSON"]
+	path = clang-ml/dataset/cJSON
+	url = https://github.com/DaveGamble/cJSON.git
+[submodule "clang-ml/dataset/jsmn"]
+	path = clang-ml/dataset/jsmn
+	url = https://github.com/zserge/jsmn.git
+[submodule "clang-ml/dataset/uthash"]
+	path = clang-ml/dataset/uthash
+	url = https://github.com/troydhanson/uthash.git
+[submodule "clang-ml/dataset/tinyexpr"]
+	path = clang-ml/dataset/tinyexpr
+	url = https://github.com/codeplea/tinyexpr.git
+[submodule "clang-ml/dataset/linux"]
+	path = clang-ml/dataset/linux
+	url = https://github.com/torvalds/linux.git
+[submodule "clang-ml/dataset/libxml2"]
+	path = clang-ml/dataset/libxml2
+	url = https://github.com/GNOME/libxml2.git
+[submodule "clang-ml/dataset/libyaml"]
+	path = clang-ml/dataset/libyaml
+	url = https://github.com/yaml/libyaml.git
+[submodule "clang-ml/dataset/c-ares"]
+	path = clang-ml/dataset/c-ares
+	url = https://github.com/c-ares/c-ares.git
+[submodule "clang-ml/dataset/curl"]
+	path = clang-ml/dataset/curl
+	url = https://github.com/curl/curl.git
+[submodule "clang-ml/dataset/glibc"]
+	path = clang-ml/dataset/glibc
+	url = https://github.com/bminor/glibc.git
+[submodule "clang-ml/dataset/libgcrypt"]
+	path = clang-ml/dataset/libgcrypt
+	url = https://github.com/gpg/libgcrypt.git
+[submodule "clang-ml/dataset/make"]
+	path = clang-ml/dataset/make
+	url = https://github.com/mirror/make.git
+[submodule "clang-ml/dataset/lz4"]
+	path = clang-ml/dataset/lz4
+	url = https://github.com/lz4/lz4.git
+[submodule "clang-ml/dataset/zlib"]
+	path = clang-ml/dataset/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "clang-ml/dataset/zstd"]
+	path = clang-ml/dataset/zstd
+	url = https://github.com/facebook/zstd.git
+[submodule "clang-ml/dataset/openssl"]
+	path = clang-ml/dataset/openssl
+	url = https://github.com/openssl/openssl.git
+[submodule "clang-ml/dataset/libsodium"]
+	path = clang-ml/dataset/libsodium
+	url = https://github.com/jedisct1/libsodium.git
+[submodule "clang-ml/dataset/sqlite"]
+	path = clang-ml/dataset/sqlite
+	url = https://github.com/sqlite/sqlite.git
+[submodule "clang-ml/dataset/FlashDB"]
+	path = clang-ml/dataset/FlashDB
+	url = https://github.com/armink/FlashDB.git
+[submodule "clang-ml/dataset/redis"]
+	path = clang-ml/dataset/redis
+	url = https://github.com/redis/redis.git
+[submodule "clang-ml/dataset/c-algorithms"]
+	path = clang-ml/dataset/c-algorithms
+	url = https://github.com/fragglet/c-algorithms.git
+[submodule "clang-ml/dataset/igraph"]
+	path = clang-ml/dataset/igraph
+	url = https://github.com/igraph/igraph.git
+[submodule "clang-ml/dataset/glib"]
+	path = clang-ml/dataset/glib
+	url = https://github.com/GNOME/glib.git
+[submodule "clang-ml/dataset/sc"]
+	path = clang-ml/dataset/sc
+	url = https://github.com/tezc/sc.git
+[submodule "clang-ml/dataset/coreutils"]
+	path = clang-ml/dataset/coreutils
+	url = https://github.com/coreutils/coreutils.git
