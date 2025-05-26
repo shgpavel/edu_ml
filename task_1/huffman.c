@@ -148,27 +148,16 @@ static uint32_t utf8_decode(unsigned char const *p, uint32_t *cp, size_t *len) {
 }
 
 static void count_freq(wchar_t const *in, struct bintree *bt) {
-	unsigned char *p = (unsigned char *)in;
-	while (*p) {
-		uint32_t cp;
-		size_t len;
-
-		if (!utf8_decode(p, &cp, &len)) {
-			p++;
-			continue;
-		}
-
-		size_t i = bintree_find(bt, cp);
+	for (wchar_t const *p = in; *p; ++p) {
+		size_t i = bintree_find(bt, *p);
 
 		if (i != (size_t)-1) {
 			struct huffman_el *el = bintree_at(bt, i);
 			el->freq++;
 		} else {
-			struct huffman_el el = {1, (wchar_t)cp, NULL, NULL};
+			struct huffman_el el = {1, *p, NULL, NULL};
 			bintree_add(bt, el);
 		}
-
-		p += len;
 	}
 }
 
@@ -287,45 +276,32 @@ struct eout encoder(wchar_t const *in) {
 
 	tree_revpass(&bt);
 
-	struct bitbuf *code_table = malloc(UINT16_MAX * sizeof(struct bitbuf));
+	struct bitbuf *code_table =
+	    calloc(DEFAULT_BTSIZE, sizeof(struct bitbuf));
 	size_t ct_size = bit_fit(&bt, code_table);
 	bintree_destroy(&bt);
 
 	uint8_t *outbuf = calloc(wcslen(in) * 8, 1);
 	size_t bit_pos = 0;
 
-	unsigned char *p = (unsigned char *)in;
-	while (*p) {
-		uint32_t cp;
-		size_t len;
-
-		if (!utf8_decode(p, &cp, &len)) {
-			p++;
-			continue;
-		}
-
+	for (const wchar_t *p = in; *p; ++p) {
 		struct bitbuf *found = NULL;
 		for (size_t i = 0; i < ct_size; ++i) {
-			if (code_table[i].el == (wchar_t)cp) {
+			if (code_table[i].el == *p) {
 				found = &code_table[i];
 				break;
 			}
 		}
-		if (!found) {
-			p += len;
-			continue;
-		}
+		if (!found) continue;
 
 		for (int i = found->len - 1; i >= 0; --i) {
 			int bit = (found->buf >> i) & 1;
-
 			if (bit) {
 				outbuf[bit_pos / 8] |=
 				    (1u << (7 - (bit_pos % 8)));
 			}
 			bit_pos++;
 		}
-		p += len;
 	}
 
 	res.size = bit_pos;
@@ -371,38 +347,9 @@ wchar_t *decoder(struct eout encoded) {
 	return out;
 }
 
-int main() {
-	setlocale(LC_ALL, "");
-
-	wchar_t *str = malloc(100000);
-	wscanf(L"%s", str);
-
-	// just to open output buffer
-	wprintf(L"%s\n", str);
-
-	struct eout e = encoder(str);
-
-	for (size_t i = 0; i < e.size; ++i) {
-		size_t byte_index = i / 8;
-		size_t bit_index = 7 - (i % 8);
-		int bit = (e.m[byte_index] >> bit_index) & 1;
-		putchar(bit ? '1' : '0');
-	}
-	putchar('\n');
-	wprintf(L"encoded size: %zu\n", e.size);
-
-	free(str);
-
-	wchar_t *dout = decoder(e);
-	wprintf(L"%ls\n", dout);
-
-	free(dout);
-	free(e.m);
-	free(e.t);
-}
-
 /*
- * set of debug prints
+ * set of useful debug prints
+ *
  * debug what is added in bit fit
  * wprintf(L"ADD: %lc code: ", n->el);
  * for (int i = cur.len - 1; i >= 0; --i)

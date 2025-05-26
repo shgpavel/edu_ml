@@ -9,42 +9,60 @@
 
 #include "huffman.h"
 
+static void free_table_capsule(PyObject *capsule) {
+	void *ptr = PyCapsule_GetPointer(capsule, "HuffmanTable");
+	if (ptr) {
+		free(ptr);
+	}
+}
+
 static PyObject *py_encode(PyObject *self, PyObject *args) {
 	PyObject *py_input;
 	if (!PyArg_ParseTuple(args, "U", &py_input)) return NULL;
 
 	Py_ssize_t input_len;
 	wchar_t const *input = PyUnicode_AsWideCharString(py_input, &input_len);
-
 	if (!input) return NULL;
 
 	struct eout result = encoder(input);
-
 	PyMem_Free((void *)input);
 
-	PyObject *py_bytes = PyBytes_FromStringAndSize((char const *)result.r,
-	                                               (result.size + 7) / 8);
-	PyObject *py_tree = PyCapsule_New(result.m, "HuffmanTree", NULL);
+	if (!result.m || result.size == 0) Py_RETURN_NONE;
 
-	return Py_BuildValue("(NO)", py_bytes, py_tree);
+	PyObject *py_bytes = PyBytes_FromStringAndSize((char const *)result.m,
+	                                               (result.size + 7) / 8);
+	PyObject *py_table =
+	    PyCapsule_New(result.t, "HuffmanTable", free_table_capsule);
+
+	return Py_BuildValue("(NOi)", py_bytes, py_table, result.size);
 }
 
-// return Py_BuildValue("NOn", py_bytes, py_tree);
-
 static PyObject *py_decode(PyObject *self, PyObject *args) {
-	const char *buffer;
+	wchar_t const *buffer;
 	Py_ssize_t buffer_size;
-	PyObject *py_tree_capsule;
+	PyObject *py_table_capsule;
+	int bitlen;
 
-	if (!PyArg_ParseTuple(args, "y#O", &buffer, &buffer_size,
-	                      &py_tree_capsule))
+	if (!PyArg_ParseTuple(args, "y#Oi", &buffer, &buffer_size,
+	                      &py_table_capsule, &bitlen))
 		return NULL;
 
-	struct huffman_el *tree =
-	    PyCapsule_GetPointer(py_tree_capsule, "HuffmanTree");
+	if (buffer_size == 0 || !buffer || !py_table_capsule) Py_RETURN_NONE;
+
+	struct bitbuf *table =
+	    PyCapsule_GetPointer(py_table_capsule, "HuffmanTable");
+
+	if (!table) {
+		PyErr_SetString(PyExc_RuntimeError,
+		                "Invalid HuffmanTable capsule");
+		return NULL;
+	}
 
 	struct eout encoded = {
-	    .size = buffer_size * 8, .r = (uint8_t *)buffer, .m = tree};
+	    .size = (size_t)bitlen,
+	    .m = (uint8_t *)buffer,
+	    .t = table,
+	};
 
 	wchar_t *decoded = decoder(encoded);
 	PyObject *py_result = PyUnicode_FromWideChar(decoded, wcslen(decoded));

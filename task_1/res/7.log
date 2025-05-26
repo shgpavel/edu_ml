@@ -1,0 +1,15 @@
+Script started on 2025-05-26 13:32:03+03:00 [COMMAND="python main.py < tests/7" TERM="foot" TTY="/dev/pts/0" COLUMNS="119" LINES="29"]
+
+Compression Comparison:
+
+| Method   |   Size (bits) | Avg Code Length   | Efficiency (%)   |
+|:---------|--------------:|:------------------|:-----------------|
+| Original |         80000 | N/A               | N/A              |
+| Huffman  |         58202 | 5.82              | 99.28            |
+| Gzip     |         59040 | N/A               | N/A              |
+
+Compression Ratio (Original → Huffman): 1.37
+Compression Ratio (Original → Gzip):    1.36
+Entropy: 5.778 bits/symbol
+
+Script done on 2025-05-26 13:32:03+03:00 [COMMAND_EXIT_CODE="0"]
