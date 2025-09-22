@@ -8,16 +8,17 @@ import subprocess
 import time
 import datetime
 import statistics
+import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any
 
-PROJECT_NAME = "cJSON"
+PROJECT_NAME = "glib"
 
 
 def run_command(
     cmd: List[str], cwd: Path = None, env: Dict[str, str] = None
 ) -> subprocess.CompletedProcess:
-    print(f"[CMD] {' '.join(cmd)}")
+    print(f"[CMD] {' '.join(cmd[:4])} ...")
     return subprocess.run(
         cmd, cwd=cwd, env=env, check=True, text=True, capture_output=True
     )
@@ -25,12 +26,14 @@ def run_command(
 
 def setup_paths(script_path: Path) -> Dict[str, Path]:
     root_dir = script_path.parents[2]
+    project_dir = root_dir / "dataset" / PROJECT_NAME
     return {
         "root": root_dir,
-        "project_src": root_dir / "dataset" / PROJECT_NAME,
+        "project_src": project_dir,
         "bench_src": root_dir / "dataset-bench" / PROJECT_NAME,
         "results_dir": root_dir / "results" / PROJECT_NAME,
-        "build_dir": root_dir / "dataset" / PROJECT_NAME / "build",
+        "build_dir": project_dir / "build",
+        "install_dir": project_dir / "install",
     }
 
 
@@ -40,7 +43,7 @@ def parse_arguments() -> argparse.Namespace:
         "--clang", default="clang", help="Path to the clang executable."
     )
     parser.add_argument(
-        "--runs", type=int, default=5, help="Number of repetitions for each benchmark."
+        "--runs", type=int, default=3, help="Number of repetitions for each benchmark."
     )
     parser.add_argument(
         "flags", nargs=argparse.REMAINDER, help="Clang compiler flags (prefix with --)."
@@ -53,52 +56,95 @@ def parse_arguments() -> argparse.Namespace:
 def build_project(
     paths: Dict[str, Path], clang_path: str, clang_flags: List[str]
 ) -> List[Path]:
-    """Ручная сборка cJSON и его бенчмарков."""
+    """Сборка и локальная установка glib, затем компиляция тестов."""
     project_src = paths["project_src"]
     build_dir = paths["build_dir"]
-    bench_src = paths["bench_src"]
+    install_dir = paths["install_dir"]
 
-    print("[*] Compiling cJSON sources into object files...")
-    object_files = []
-    for src_file in project_src.glob("*.c"):
-        if src_file.name == "test.c":
-            continue
-        obj_path = build_dir / f"{src_file.stem}.o"
-        cmd = [
-            clang_path,
-            "-c",
-            *clang_flags,
-            f"-I{project_src}",
-            str(src_file),
-            "-o",
-            str(obj_path),
-        ]
-        run_command(cmd)
-        object_files.append(obj_path)
+    if build_dir.exists():
+        shutil.rmtree(build_dir)
+    if install_dir.exists():
+        shutil.rmtree(install_dir)
+    build_dir.mkdir()
+    install_dir.mkdir()
 
-    print("[*] Compiling and linking benchmark binaries...")
+    env = os.environ.copy()
+    env["CC"] = clang_path
+    env["CFLAGS"] = " ".join(clang_flags)
+
+    if (project_src / "meson.build").exists():
+        print("[*] Found meson.build, using Meson build system.")
+        run_command(
+            [
+                "meson",
+                "setup",
+                str(build_dir),
+                f"--prefix={install_dir}",
+                "-Dbuildtype=release",
+                "-Dlibmount=disabled",
+                "-Dselinux=disabled",
+            ],
+            cwd=project_src,
+            env=env,
+        )
+        run_command(
+            ["meson", "compile", "-C", str(build_dir), "-j", str(mp.cpu_count())],
+            env=env,
+        )
+        run_command(["meson", "install", "-C", str(build_dir)], env=env)
+    elif (project_src / "configure").exists():
+        print("[*] Found configure script, using Autotools.")
+        run_command(
+            [str(project_src / "configure"), f"--prefix={install_dir}", "--quiet"],
+            cwd=project_src,
+            env=env,
+        )
+        run_command(["make", "-j", str(mp.cpu_count())], cwd=project_src, env=env)
+        run_command(["make", "install"], cwd=project_src, env=env)
+    else:
+        raise RuntimeError(
+            "No supported build system found (meson.build or configure)."
+        )
+
+    print("[*] Compiling benchmark tests against installed glib...")
+
+    build_env = env.copy()
+    pkg_config_path = str(install_dir / "lib/pkgconfig")
+    if "PKG_CONFIG_PATH" in build_env:
+        build_env["PKG_CONFIG_PATH"] += os.pathsep + pkg_config_path
+    else:
+        build_env["PKG_CONFIG_PATH"] = pkg_config_path
+
+    pkg_flags_proc = run_command(
+        ["pkg-config", "--cflags", "--libs", "glib-2.0"], env=build_env
+    )
+    pkg_flags = pkg_flags_proc.stdout.strip().split()
+
     executables = []
-    obj_files_str = [str(o) for o in object_files]
-    for bench_file in sorted(bench_src.glob("*.c")):
-        exe_path = build_dir / bench_file.stem
-        cmd = [
-            clang_path,
-            *clang_flags,
-            f"-I{project_src}",
-            str(bench_file),
-            *obj_files_str,
-            "-o",
-            str(exe_path),
-        ]
-        run_command(cmd)
-        executables.append(exe_path)
+    exec_dir = build_dir / "execs"
+    exec_dir.mkdir()
+
+    bench_sources = sorted(paths["bench_src"].glob("*.c"))
+    if not bench_sources:
+        raise RuntimeError(f"No benchmark sources found in {paths['bench_src']}")
+
+    for src in bench_sources:
+        exe = exec_dir / src.stem
+        cmd = [clang_path, *clang_flags, str(src), "-o", str(exe), *pkg_flags]
+        run_command(cmd, env=build_env)
+        executables.append(exe)
 
     return executables
 
 
-def run_benchmarks(executables: List[Path], runs: int) -> List[Dict[str, Any]]:
+def run_benchmarks(
+    executables: List[Path], runs: int, paths: Dict[str, Path]
+) -> List[Dict[str, Any]]:
     results = []
     print(f"[*] Running {len(executables)} benchmarks ({runs} runs each)...")
+
+    run_env = os.environ.copy()
+    run_env["LD_LIBRARY_PATH"] = str(paths["install_dir"] / "lib")
 
     for exe_path in executables:
         timings = []
@@ -110,6 +156,7 @@ def run_benchmarks(executables: List[Path], runs: int) -> List[Dict[str, Any]]:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=True,
+                    env=run_env,
                 )
                 end_time = time.perf_counter()
                 timings.append(end_time - start_time)
@@ -154,19 +201,15 @@ def main():
     print(f"[*] Build dir:    {paths['build_dir']}")
     print(f"[*] Clang flags:  {' '.join(args.flags) or '(none)'}")
 
-    print(f"[*] Cleaning build directory: {paths['build_dir']}")
-    shutil.rmtree(paths["build_dir"], ignore_errors=True)
-    paths["build_dir"].mkdir(parents=True)
-
     try:
         print("\n[*] Starting build...")
         executables = build_project(paths, args.clang, args.flags)
         if not executables:
             raise RuntimeError("Build process failed or produced no executables.")
-        print(f"[OK] Build successful. Found {len(executables)} executables.")
+        print(f"[OK] Build successful.")
 
         print("\n[*] Starting benchmarks...")
-        results = run_benchmarks(executables, args.runs)
+        results = run_benchmarks(executables, args.runs, paths)
 
         save_results(results, paths)
 
@@ -176,9 +219,6 @@ def main():
             print("------- STDERR -------\n" + e.stderr + "\n----------------------")
         else:
             print(e)
-        exit(1)
-    except Exception as e:
-        print(f"\n[FATAL ERROR] An unexpected error occurred: {e}")
         exit(1)
 
 

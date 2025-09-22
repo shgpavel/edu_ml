@@ -6,115 +6,182 @@ import os
 import shutil
 import subprocess
 import time
+import datetime
+import statistics
+import multiprocessing as mp
 from pathlib import Path
+from typing import List, Dict, Any
+
+PROJECT_NAME = "curl"
 
 
-def run(cmd, cwd=None, env=None):
-    result = subprocess.run(cmd, shell=True, cwd=cwd, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    if result.returncode != 0:
-        raise RuntimeError(f"[{cmd}] failed:\n{result.stderr.decode()}")
-    return result
+def run_command(
+    cmd: List[str], cwd: Path = None, env: Dict[str, str] = None
+) -> subprocess.CompletedProcess:
+    print(f"[CMD] {' '.join(cmd[:4])} ...")
+    return subprocess.run(
+        cmd, cwd=cwd, env=env, check=True, text=True, capture_output=True
+    )
 
 
-def get_bin_size(path):
-    return Path(path).stat().st_size if Path(path).exists() else 0
+def setup_paths(script_path: Path) -> Dict[str, Path]:
+    root_dir = script_path.parents[2]
+    build_dir = root_dir / "dataset" / f"{PROJECT_NAME}-build"
+    return {
+        "root": root_dir,
+        "project_src": root_dir / "dataset" / PROJECT_NAME,
+        "bench_src": root_dir / "dataset-bench" / PROJECT_NAME,
+        "results_dir": root_dir / "results" / PROJECT_NAME,
+        "build_dir": build_dir,
+    }
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Build and benchmark curl with clang")
-    parser.add_argument("--runs", type=int, default=1, help="How many times to run each benchmark")
-    parser.add_argument("cflags", nargs=argparse.REMAINDER, help="CFLAGS for clang")
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=f"Build and benchmark {PROJECT_NAME}.")
+    parser.add_argument(
+        "--clang", default="clang", help="Path to the clang executable."
+    )
+    parser.add_argument(
+        "--runs", type=int, default=3, help="Number of repetitions for each benchmark."
+    )
+    parser.add_argument(
+        "flags", nargs=argparse.REMAINDER, help="Clang compiler flags (prefix with --)."
+    )
     args = parser.parse_args()
+    args.flags = [flag for flag in args.flags if flag != "--"]
+    return args
 
-    clean_flags = [f for f in args.cflags if f != "--"]
-    cflags = " ".join(clean_flags) if clean_flags else "-O2"
-    runs = args.runs
 
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent
-    base_dir = root_dir.parent
+def build_project(
+    paths: Dict[str, Path], clang_path: str, clang_flags: List[str]
+) -> List[Path]:
+    """Сборка curl с помощью Autotools."""
+    project_src = paths["project_src"]
+    build_dir = paths["build_dir"]
 
-    curl_dir = base_dir / "dataset" / "curl"
-    bench_dir = base_dir / "dataset-bench" / "curl"
-    results_dir = base_dir / "results" / "curl"
-    build_dir = curl_dir / "build-clang"
-
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"[*] Cleaning old build directory...")
     if build_dir.exists():
         shutil.rmtree(build_dir)
-    shutil.copytree(curl_dir, build_dir, dirs_exist_ok=True)
+    shutil.copytree(project_src, build_dir)
 
-    # Run buildconf to generate configure
-    print("[*] Running buildconf to generate configure script...")
-    run("./buildconf", cwd=build_dir)
+    print("[*] Running buildconf...")
+    run_command(["./buildconf"], cwd=build_dir)
 
-    print(f"[*] Configuring with clang and CFLAGS: {cflags}")
     env = os.environ.copy()
-    env["CC"] = "clang"
-    env["CFLAGS"] = cflags
-    env["CPPFLAGS"] = "-I.."
-    run("./configure --quiet --without-ssl", cwd=build_dir, env=env)
+    env["CC"] = clang_path
+    env["CFLAGS"] = " ".join(clang_flags)
+
+    print(f"[*] Configuring with CFLAGS: {env['CFLAGS']}")
+    run_command(["./configure", "--quiet", "--without-ssl"], cwd=build_dir, env=env)
 
     print("[*] Building curl...")
-    run("make -s -j$(nproc)", cwd=build_dir, env=env)
+    run_command(["make", "-j", str(mp.cpu_count())], cwd=build_dir, env=env)
 
     curl_bin = build_dir / "src" / "curl"
     if not curl_bin.exists():
-        raise RuntimeError("curl binary not found at expected location.")
+        raise RuntimeError("curl binary not found after build.")
 
-    bin_size = get_bin_size(curl_bin)
+    return [curl_bin]
 
+
+def run_benchmarks(
+    executables: List[Path], runs: int, paths: Dict[str, Path]
+) -> List[Dict[str, Any]]:
+    """Запускает python-скрипты для тестирования curl."""
+    if not executables:
+        return []
+
+    curl_bin = executables[0]
+    binary_size = curl_bin.stat().st_size
     results = []
+    bench_src = paths["bench_src"]
+    build_dir = paths["build_dir"]
 
-    benchmarks = sorted(bench_dir.glob("*_bench.py"))
-    if not benchmarks:
-        raise RuntimeError(f"No *_bench.py found in {bench_dir}")
+    bench_scripts = sorted(bench_src.glob("*_bench.py"))
+    print(f"[*] Running {len(bench_scripts)} benchmarks for curl...")
 
-    for bench_path in benchmarks:
-        bench_name = bench_path.stem
-        print(f"[*] Running benchmark: {bench_name}")
+    for bench_script in bench_scripts:
+        bench_name = bench_script.stem
 
-        temp_dir = build_dir / f"run_{bench_name}"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        run_dir = build_dir / f"run_{bench_name}"
+        run_dir.mkdir(exist_ok=True)
+        shutil.copy(curl_bin, run_dir / "curl")
+        shutil.copy(bench_script, run_dir / "run_bench.py")
+        if (bench_src / "test.txt").exists():
+            shutil.copy(bench_src / "test.txt", run_dir)
 
-        shutil.copy(curl_bin, temp_dir / "curl")
-        bench_script = bench_path.name
-        shutil.copy(bench_path, temp_dir / "run_bench.py")
+        timings = []
+        try:
+            for i in range(runs):
+                print(f"  - Running {bench_name} (run {i + 1}/{runs})...")
+                start_time = time.perf_counter()
+                run_command(["python3", "run_bench.py"], cwd=run_dir)
+                end_time = time.perf_counter()
+                timings.append(end_time - start_time)
 
-        txt_path = bench_dir / "test.txt"
-        if txt_path.exists():
-            shutil.copy(txt_path, temp_dir / "test.txt")
+            avg_time = statistics.mean(timings)
 
-        total_time = 0.0
-        for _ in range(runs):
-            t0 = time.perf_counter()
-            run("python3 run_bench.py", cwd=temp_dir)
-            t1 = time.perf_counter()
-            total_time += (t1 - t0)
+            results.append(
+                {
+                    "bench": bench_name,
+                    "bytes": binary_size,
+                    "seconds": avg_time,
+                }
+            )
+            print(f"    {bench_name:<25} {binary_size:8d} bytes, {avg_time:.6f}s avg")
 
-        avg_time = total_time / runs
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"[ERROR] Failed to run benchmark {bench_name}: {e}")
+            if hasattr(e, "stderr"):
+                print(e.stderr)
 
-        results.append({
-            "bench": bench_name,
-            "bytes": bin_size,
-            "seconds": avg_time
-        })
+        finally:
+            shutil.rmtree(run_dir)
 
-        print(f"    {bench_name:20}  {bin_size:8d} bytes  avg {avg_time:.6f}s over {runs} run(s)")
+    return results
 
-        shutil.rmtree(temp_dir)
 
-    out_path = results_dir / "results.json"
-    with open(out_path, "w") as f:
+def save_results(results: List[Dict[str, Any]], paths: Dict[str, Path]):
+    if not results:
+        print("[WARN] No results to save.")
+        return
+    results_dir = paths["results_dir"]
+    results_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = results_dir / f"results_{timestamp}.json"
+    with open(output_file, "w") as f:
         json.dump(results, f, indent=2)
-    print(f"Results written to {out_path}")
+    print(f"\n[SUCCESS] Results saved to {output_file.relative_to(paths['root'])}")
 
-    shutil.rmtree(build_dir)
+
+def main():
+    args = parse_arguments()
+    paths = setup_paths(Path(__file__).resolve())
+    print(f"[*] Project:      {PROJECT_NAME}")
+    print(f"[*] Build dir:    {paths['build_dir']}")
+    print(f"[*] Clang flags:  {' '.join(args.flags) or '(none)'}")
+
+    try:
+        print("\n[*] Starting build...")
+        executables = build_project(paths, args.clang, args.flags)
+
+        print("\n[*] Starting benchmarks...")
+        results = run_benchmarks(executables, args.runs, paths)
+
+        save_results(results, paths)
+
+        print(f"[*] Cleaning up build directory: {paths['build_dir']}")
+        shutil.rmtree(paths["build_dir"])
+
+    except (subprocess.CalledProcessError, RuntimeError) as e:
+        print(f"\n[FATAL ERROR] An error occurred during the process.")
+        if hasattr(e, "stderr") and e.stderr:
+            print("------- STDERR -------\n" + e.stderr + "\n----------------------")
+        else:
+            print(e)
+        if paths["build_dir"].exists():
+            shutil.rmtree(paths["build_dir"])
+        exit(1)
 
 
 if __name__ == "__main__":
     main()
-
