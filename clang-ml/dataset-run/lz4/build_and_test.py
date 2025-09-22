@@ -12,7 +12,7 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any
 
-PROJECT_NAME = "libsodium"
+PROJECT_NAME = "lz4"
 
 
 def run_command(
@@ -25,7 +25,9 @@ def run_command(
 
 
 def setup_paths(script_path: Path) -> Dict[str, Path]:
+    """Определяет все необходимые пути проекта."""
     root_dir = script_path.parents[2]
+    edu_ml_root = script_path.parents[3]
     install_dir = root_dir / "dataset" / "deps_install"
     return {
         "root": root_dir,
@@ -34,6 +36,7 @@ def setup_paths(script_path: Path) -> Dict[str, Path]:
         "results_dir": root_dir / "results" / PROJECT_NAME,
         "build_dir": root_dir / "dataset" / f"{PROJECT_NAME}-build",
         "install_dir": install_dir,
+        "test_data_dir": edu_ml_root / "task_1" / "tests",
     }
 
 
@@ -66,33 +69,23 @@ def build_project(
     env["CC"] = clang_path
     env["CFLAGS"] = " ".join(clang_flags)
 
-    print(f"[*] Generating 'configure' script via autoreconf...")
-    run_command(["autoreconf", "-if"], cwd=project_src)
+    lib_dir = project_src / "lib"
+    print(f"[*] Building {PROJECT_NAME} library...")
+    run_command(["make", "-j", "20", "clean"], cwd=lib_dir, env=env)
+    run_command(["make", "-j", "20", "all"], cwd=lib_dir, env=env)
 
-    configure_script = project_src / "configure"
-    if not configure_script.is_file():
-        raise RuntimeError(
-            f"'configure' script not found at {configure_script} after running autoreconf."
-        )
-
-    print(f"[*] Configuring {PROJECT_NAME}...")
-    configure_cmd = [
-        str(configure_script),
-        f"--prefix={install_dir}",
-        "--disable-dependency-tracking",
-        "--enable-static",
-        "--disable-shared",
-    ]
-    run_command(configure_cmd, cwd=build_dir, env=env)
-
-    print(f"[*] Building and installing {PROJECT_NAME}...")
-    run_command(["make", "-j", "20", "clean"], cwd=build_dir)
-    run_command(["make", "-j", "20"], cwd=build_dir)
-    run_command(["make", "install"], cwd=build_dir)
+    print(f"[*] Installing {PROJECT_NAME} to {install_dir}...")
+    install_env = env.copy()
+    install_env["DESTDIR"] = str(install_dir)
+    install_env["prefix"] = "/usr/local"
+    run_command(["make", "install"], cwd=project_src, env=install_env)
 
     print("\n--- Building Benchmarks ---")
-    include_path = install_dir / "include"
-    lib_path = install_dir / "lib" / "libsodium.a"
+
+    final_install_path = install_dir / "usr/local"
+    include_path = final_install_path / "include"
+    lib_path = final_install_path / "lib" / "liblz4.a"
+
     executables = []
     for bench_file in sorted(paths["bench_src"].glob("*_bench.c")):
         exe_path = build_dir / bench_file.stem
@@ -104,7 +97,6 @@ def build_project(
             str(lib_path),
             "-o",
             str(exe_path),
-            "-lpthread",
         ]
         run_command(cmd)
         executables.append(exe_path)
@@ -112,33 +104,61 @@ def build_project(
     return executables
 
 
-def run_benchmarks(executables: List[Path], runs: int) -> List[Dict[str, Any]]:
+def run_benchmarks(
+    executables: List[Path], runs: int, paths: Dict[str, Path]
+) -> List[Dict[str, Any]]:
+    """Запускает бенчмарки на каждом из 7 тестовых файлов."""
     results = []
-    print(f"\n[*] Running {len(executables)} benchmarks ({runs} runs each)...")
-    for exe_path in executables:
-        timings = []
-        try:
-            subprocess.run(
-                [str(exe_path)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
-            for _ in range(runs):
-                start_time = time.perf_counter()
-                subprocess.run([str(exe_path)], stdout=subprocess.DEVNULL, check=True)
-                timings.append(time.perf_counter() - start_time)
+    test_data_dir = paths["test_data_dir"]
 
-            avg_time = statistics.mean(timings)
-            binary_size = exe_path.stat().st_size
-            results.append(
-                {"bench": exe_path.name, "bytes": binary_size, "seconds": avg_time}
-            )
-            print(
-                f"  - {exe_path.name:<25} {binary_size:8d} bytes, {avg_time:.6f}s avg"
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            print(f"[ERROR] Failed to run benchmark {exe_path.name}: {e}")
+    if not test_data_dir.exists():
+        raise FileNotFoundError(f"Test data directory not found: {test_data_dir}")
+
+    test_files = sorted(
+        [
+            p
+            for p in test_data_dir.iterdir()
+            if p.name.isdigit() and 1 <= int(p.name) <= 7
+        ]
+    )
+
+    if not test_files:
+        raise FileNotFoundError(f"No test files named 1-7 found in {test_data_dir}")
+
+    print(
+        f"\n[*] Running {len(executables)} benchmarks on {len(test_files)} data files ({runs} runs each)..."
+    )
+
+    for exe_path in executables:
+        for test_file in test_files:
+            bench_name = f"{exe_path.stem}_on_file_{test_file.name}"
+            command_to_run = [str(exe_path), str(test_file)]
+
+            timings = []
+            try:
+                subprocess.run(
+                    command_to_run,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=True,
+                )
+                for _ in range(runs):
+                    start_time = time.perf_counter()
+                    subprocess.run(
+                        command_to_run, stdout=subprocess.DEVNULL, check=True
+                    )
+                    timings.append(time.perf_counter() - start_time)
+
+                avg_time = statistics.mean(timings)
+                binary_size = exe_path.stat().st_size
+                results.append(
+                    {"bench": bench_name, "bytes": binary_size, "seconds": avg_time}
+                )
+                print(
+                    f"  - {bench_name:<35} {binary_size:8d} bytes, {avg_time:.6f}s avg"
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                print(f"[ERROR] Failed to run benchmark {bench_name}: {e}")
     return results
 
 
@@ -158,9 +178,11 @@ def save_results(results: List[Dict[str, Any]], paths: Dict[str, Path]):
 def main():
     args = parse_arguments()
     paths = setup_paths(Path(__file__).resolve())
+
     print(f"[*] Project:      {PROJECT_NAME}")
     print(f"[*] Build dir:    {paths['build_dir']}")
-    print(f"[*] Install dir:  {paths['install_dir']}")
+    print(f"[*] Test data:    {paths['test_data_dir']}")
+    print(f"[*] Clang flags:  {' '.join(args.flags) or '(none)'}")
 
     shutil.rmtree(paths["build_dir"], ignore_errors=True)
     shutil.rmtree(paths["install_dir"], ignore_errors=True)
@@ -168,7 +190,7 @@ def main():
 
     try:
         executables = build_project(paths, args.clang, args.flags)
-        results = run_benchmarks(executables, args.runs)
+        results = run_benchmarks(executables, args.runs, paths)
         save_results(results, paths)
     except (subprocess.CalledProcessError, RuntimeError) as e:
         print(f"\n[FATAL ERROR] An error occurred during the process.")
@@ -182,8 +204,10 @@ def main():
             print(e)
         exit(1)
     finally:
-        print(f"[*] Cleaning up build directory...")
+        print(f"[*] Cleaning up benchmark binaries directory...")
         shutil.rmtree(paths["build_dir"], ignore_errors=True)
+        print(f"[*] Running 'make clean' in the source directory...")
+        run_command(["make", "clean"], cwd=(paths["project_src"] / "lib"))
 
 
 if __name__ == "__main__":

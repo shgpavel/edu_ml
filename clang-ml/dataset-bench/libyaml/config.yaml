@@ -1,0 +1,41 @@
+server:
+  host: 192.168.1.100
+  port: 8080
+  protocol: https
+  enabled: true
+  threads: 16
+  log_level: "INFO"
+  timeouts:
+    connect: 5000
+    read: 10000
+    write: 5000
+
+database:
+  type: postgres
+  host: db.production.internal
+  port: 5432
+  user: "prod_user"
+  pool_size: 50
+  params:
+    - "sslmode=require"
+    - "connect_timeout=10"
+
+features:
+  - name: "Real-time Analytics"
+    enabled: true
+    alpha_users: [ "user1@test.com", "user2@test.com", "user3@test.com" ]
+  - name: "Machine Learning Suggestions"
+    enabled: false
+    options:
+      retries: 3
+      backoff: "exponential"
+      model_version: "v2.1a"
+  - name: "Custom Dashboards"
+    enabled: true
+    user_roles: [ "admin", "editor", "viewer" ]
+  - name: "API Access"
+    enabled: true
+    rate_limit: 1000
+  - name: "Single Sign-On (SSO)"
+    enabled: true
+    providers: ["google", "github", "saml"]

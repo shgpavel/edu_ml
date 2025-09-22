@@ -1,5 +1,6 @@
 #include <sodium.h>
 #include <stdio.h>
+#include <string.h>
 
 #define DERIVED_KEY_LEN 32
 

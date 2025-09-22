@@ -12,7 +12,7 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any
 
-PROJECT_NAME = "libsodium"
+PROJECT_NAME = "libxml2"
 
 
 def run_command(
@@ -79,9 +79,12 @@ def build_project(
     configure_cmd = [
         str(configure_script),
         f"--prefix={install_dir}",
-        "--disable-dependency-tracking",
         "--enable-static",
         "--disable-shared",
+        "--without-python",
+        "--without-zlib",
+        "--without-lzma",
+        "--without-iconv",
     ]
     run_command(configure_cmd, cwd=build_dir, env=env)
 
@@ -91,20 +94,25 @@ def build_project(
     run_command(["make", "install"], cwd=build_dir)
 
     print("\n--- Building Benchmarks ---")
-    include_path = install_dir / "include"
-    lib_path = install_dir / "lib" / "libsodium.a"
+
+    config_script = install_dir / "bin" / "xml2-config"
+    cflags_proc = run_command([str(config_script), "--cflags"])
+    libs_proc = run_command([str(config_script), "--libs"])
+
+    extra_cflags = cflags_proc.stdout.strip().split()
+    extra_libs = libs_proc.stdout.strip().split()
+
     executables = []
     for bench_file in sorted(paths["bench_src"].glob("*_bench.c")):
         exe_path = build_dir / bench_file.stem
         cmd = [
             clang_path,
             *clang_flags,
-            f"-I{include_path}",
+            *extra_cflags,
             str(bench_file),
-            str(lib_path),
             "-o",
             str(exe_path),
-            "-lpthread",
+            *extra_libs,
         ]
         run_command(cmd)
         executables.append(exe_path)
@@ -112,9 +120,17 @@ def build_project(
     return executables
 
 
-def run_benchmarks(executables: List[Path], runs: int) -> List[Dict[str, Any]]:
+def run_benchmarks(
+    executables: List[Path], runs: int, paths: Dict[str, Path]
+) -> List[Dict[str, Any]]:
     results = []
     print(f"\n[*] Running {len(executables)} benchmarks ({runs} runs each)...")
+
+    bench_src = paths["bench_src"]
+    build_dir = paths["build_dir"]
+    shutil.copy(bench_src / "books.xml", build_dir)
+    shutil.copy(bench_src / "books.xsd", build_dir)
+
     for exe_path in executables:
         timings = []
         try:
@@ -123,10 +139,16 @@ def run_benchmarks(executables: List[Path], runs: int) -> List[Dict[str, Any]]:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=True,
+                cwd=build_dir,
             )
             for _ in range(runs):
                 start_time = time.perf_counter()
-                subprocess.run([str(exe_path)], stdout=subprocess.DEVNULL, check=True)
+                subprocess.run(
+                    [str(exe_path)],
+                    stdout=subprocess.DEVNULL,
+                    check=True,
+                    cwd=build_dir,
+                )
                 timings.append(time.perf_counter() - start_time)
 
             avg_time = statistics.mean(timings)
@@ -158,9 +180,11 @@ def save_results(results: List[Dict[str, Any]], paths: Dict[str, Path]):
 def main():
     args = parse_arguments()
     paths = setup_paths(Path(__file__).resolve())
+
     print(f"[*] Project:      {PROJECT_NAME}")
     print(f"[*] Build dir:    {paths['build_dir']}")
     print(f"[*] Install dir:  {paths['install_dir']}")
+    print(f"[*] Clang flags:  {' '.join(args.flags) or '(none)'}")
 
     shutil.rmtree(paths["build_dir"], ignore_errors=True)
     shutil.rmtree(paths["install_dir"], ignore_errors=True)
@@ -168,7 +192,7 @@ def main():
 
     try:
         executables = build_project(paths, args.clang, args.flags)
-        results = run_benchmarks(executables, args.runs)
+        results = run_benchmarks(executables, args.runs, paths)
         save_results(results, paths)
     except (subprocess.CalledProcessError, RuntimeError) as e:
         print(f"\n[FATAL ERROR] An error occurred during the process.")

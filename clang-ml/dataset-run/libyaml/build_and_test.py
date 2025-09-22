@@ -12,7 +12,7 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any
 
-PROJECT_NAME = "libsodium"
+PROJECT_NAME = "libyaml"
 
 
 def run_command(
@@ -66,20 +66,19 @@ def build_project(
     env["CC"] = clang_path
     env["CFLAGS"] = " ".join(clang_flags)
 
-    print(f"[*] Generating 'configure' script via autoreconf...")
-    run_command(["autoreconf", "-if"], cwd=project_src)
+    print(f"[*] Generating 'configure' script via bootstrap...")
+    run_command(["./bootstrap"], cwd=project_src)
 
     configure_script = project_src / "configure"
     if not configure_script.is_file():
         raise RuntimeError(
-            f"'configure' script not found at {configure_script} after running autoreconf."
+            f"'configure' script not found at {configure_script} after running bootstrap."
         )
 
     print(f"[*] Configuring {PROJECT_NAME}...")
     configure_cmd = [
         str(configure_script),
         f"--prefix={install_dir}",
-        "--disable-dependency-tracking",
         "--enable-static",
         "--disable-shared",
     ]
@@ -91,20 +90,30 @@ def build_project(
     run_command(["make", "install"], cwd=build_dir)
 
     print("\n--- Building Benchmarks ---")
-    include_path = install_dir / "include"
-    lib_path = install_dir / "lib" / "libsodium.a"
+
+    pkg_config_path = str(install_dir / "lib" / "pkgconfig")
+    pkg_env = os.environ.copy()
+    pkg_env["PKG_CONFIG_PATH"] = pkg_config_path
+
+    cflags_proc = run_command(["pkg-config", "--cflags", "yaml-0.1"], env=pkg_env)
+    libs_proc = run_command(
+        ["pkg-config", "--libs", "--static", "yaml-0.1"], env=pkg_env
+    )
+
+    extra_cflags = cflags_proc.stdout.strip().split()
+    extra_libs = libs_proc.stdout.strip().split()
+
     executables = []
     for bench_file in sorted(paths["bench_src"].glob("*_bench.c")):
         exe_path = build_dir / bench_file.stem
         cmd = [
             clang_path,
             *clang_flags,
-            f"-I{include_path}",
+            *extra_cflags,
             str(bench_file),
-            str(lib_path),
             "-o",
             str(exe_path),
-            "-lpthread",
+            *extra_libs,
         ]
         run_command(cmd)
         executables.append(exe_path)
@@ -112,9 +121,14 @@ def build_project(
     return executables
 
 
-def run_benchmarks(executables: List[Path], runs: int) -> List[Dict[str, Any]]:
+def run_benchmarks(
+    executables: List[Path], runs: int, paths: Dict[str, Path]
+) -> List[Dict[str, Any]]:
     results = []
     print(f"\n[*] Running {len(executables)} benchmarks ({runs} runs each)...")
+
+    shutil.copy(paths["bench_src"] / "config.yaml", paths["build_dir"])
+
     for exe_path in executables:
         timings = []
         try:
@@ -123,10 +137,16 @@ def run_benchmarks(executables: List[Path], runs: int) -> List[Dict[str, Any]]:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=True,
+                cwd=paths["build_dir"],
             )
             for _ in range(runs):
                 start_time = time.perf_counter()
-                subprocess.run([str(exe_path)], stdout=subprocess.DEVNULL, check=True)
+                subprocess.run(
+                    [str(exe_path)],
+                    stdout=subprocess.DEVNULL,
+                    check=True,
+                    cwd=paths["build_dir"],
+                )
                 timings.append(time.perf_counter() - start_time)
 
             avg_time = statistics.mean(timings)
@@ -158,9 +178,11 @@ def save_results(results: List[Dict[str, Any]], paths: Dict[str, Path]):
 def main():
     args = parse_arguments()
     paths = setup_paths(Path(__file__).resolve())
+
     print(f"[*] Project:      {PROJECT_NAME}")
     print(f"[*] Build dir:    {paths['build_dir']}")
     print(f"[*] Install dir:  {paths['install_dir']}")
+    print(f"[*] Clang flags:  {' '.join(args.flags) or '(none)'}")
 
     shutil.rmtree(paths["build_dir"], ignore_errors=True)
     shutil.rmtree(paths["install_dir"], ignore_errors=True)
@@ -168,7 +190,7 @@ def main():
 
     try:
         executables = build_project(paths, args.clang, args.flags)
-        results = run_benchmarks(executables, args.runs)
+        results = run_benchmarks(executables, args.runs, paths)
         save_results(results, paths)
     except (subprocess.CalledProcessError, RuntimeError) as e:
         print(f"\n[FATAL ERROR] An error occurred during the process.")
