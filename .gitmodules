@@ -1,12 +1,6 @@
 [submodule "clang-ml/dataset/cJSON"]
 	path = clang-ml/dataset/cJSON
 	url = https://github.com/DaveGamble/cJSON.git
-[submodule "clang-ml/dataset/jsmn"]
-	path = clang-ml/dataset/jsmn
-	url = https://github.com/zserge/jsmn.git
-[submodule "clang-ml/dataset/uthash"]
-	path = clang-ml/dataset/uthash
-	url = https://github.com/troydhanson/uthash.git
 [submodule "clang-ml/dataset/tinyexpr"]
 	path = clang-ml/dataset/tinyexpr
 	url = https://github.com/codeplea/tinyexpr.git
@@ -49,3 +43,15 @@
 [submodule "clang-ml/dataset/sc"]
 	path = clang-ml/dataset/sc
 	url = https://github.com/tezc/sc.git
+[submodule "clang-ml/dataset/zlib"]
+	path = clang-ml/dataset/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "clang-ml/dataset/openssl"]
+	path = clang-ml/dataset/openssl
+	url = https://github.com/openssl/openssl.git
+[submodule "clang-ml/dataset/glib"]
+	path = clang-ml/dataset/glib
+	url = https://github.com/GNOME/glib.git
+[submodule "clang-ml/dataset/coreutils"]
+	path = clang-ml/dataset/coreutils
+	url = https://github.com/coreutils/coreutils.git
