@@ -19,9 +19,6 @@
 [submodule "clang-ml/dataset/libgcrypt"]
 	path = clang-ml/dataset/libgcrypt
 	url = https://github.com/gpg/libgcrypt.git
-[submodule "clang-ml/dataset/make"]
-	path = clang-ml/dataset/make
-	url = https://github.com/mirror/make.git
 [submodule "clang-ml/dataset/lz4"]
 	path = clang-ml/dataset/lz4
 	url = https://github.com/lz4/lz4.git
