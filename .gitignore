@@ -1,4 +1,7 @@
 clang-ml/docs/exmpl.pdf
+clang-ml/lrndata
+clang-ml/dataset/deps_src
 clang-ml/dataset/deps_install
+
 .ipynb_checkpoints
 **/.cache/**
